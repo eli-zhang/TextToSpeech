@@ -9,32 +9,75 @@ const client = new speech.SpeechClient();
 const fileName = 'recordings/20220711T022903911Z/327442336727.wav';
 const DIRECTORY = "recordings"
 
-
 const CONFIDENCE_THRESHOLD = 0.9
 const START_TIME_PADDING = 0.05;
 const END_TIME_PADDING = 0.05;
 
+const loopDirectories = async (dir) => {
+    try {
+        const files = await fs.promises.readdir(dir);
+    
+        for (const file of files) {
+            const p = path.join(dir, file);
+            const stat = await fs.promises.stat(p);
+        
+            if (stat.isDirectory()) {
+                loopFiles(p);
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
 
-async function transcribeAudio() {
+const loopFiles = async (dir) => {
+    try {
+        const files = await fs.promises.readdir(dir);
+    
+        for (const file of files) {
+            const p = path.join(dir, file);
+            const stat = await fs.promises.stat(p);
+        
+            if (stat.isFile()) {
+                if (p.includes(".wav")) {
+                    transcribeAudio(p);
+                }
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
 
-  let words = [];
+async function transcribeAudio(fileName) {
+    let words = [];
 
-  // The audio file's encoding, sample rate in hertz, and BCP-47 language code
-  const audio = {
-    content: fs.readFileSync(fileName).toString('base64'),
-  };
+    // The audio file's encoding, sample rate in hertz, and BCP-47 language code
+    const audio = {
+        content: fs.readFileSync(fileName).toString('base64'),
+    };
 
-  const config = {
-    enableWordTimeOffsets: true,
-    enableWordConfidence: true,
-    languageCode: 'en-US',
-  };
-  const request = {
-    audio: audio,
-    config: config,
-  };
+    const config = {
+        enableWordTimeOffsets: true,
+        enableWordConfidence: true,
+        languageCode: 'en-US',
+    };
+    const request = {
+        audio: audio,
+        config: config,
+    };
 
-  // Detects speech in the audio file. This creates a recognition job that you
+    const originalTimestamp = fileName.substring(fileName.indexOf("/") + 1, fileName.indexOf("."));
+    // Create path to write recordings to.
+    if (!fs.existsSync(`${DIRECTORY}/${originalTimestamp}`)) {
+        fs.mkdirSync(`${DIRECTORY}/${originalTimestamp}`, { recursive: true });
+    }
+
+    if (fs.existsSync(`${DIRECTORY}/${originalTimestamp}.json`)) {
+        return;
+    }
+
+    // Detects speech in the audio file. This creates a recognition job that you
     // can wait for now, or get its result later.
     const [operation] = await client.longRunningRecognize(request);
 
@@ -61,11 +104,6 @@ async function transcribeAudio() {
     });
 
     const wordsJSON = JSON.stringify(words);
-    const originalTimestamp = fileName.substring(fileName.indexOf("/") + 1, fileName.indexOf("."));
-    // Create path to write recordings to.
-    if (!fs.existsSync(`${DIRECTORY}/${originalTimestamp}`)) {
-        fs.mkdirSync(`${DIRECTORY}/${originalTimestamp}`, { recursive: true });
-    }
 
     fs.writeFile(`${DIRECTORY}/${originalTimestamp}.json`, wordsJSON, (err) => {
         if (err) {
@@ -123,4 +161,5 @@ const splitAudioIntoWords = async (file, words) => {
     // fs.unlinkSync(file);
 }
 
-transcribeAudio();
+loopDirectories(DIRECTORY);
+// transcribeAudio(fileName);

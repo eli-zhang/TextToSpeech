@@ -1,7 +1,6 @@
 let ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
-// const file = 'recordings/20220719T190616262Z_recording.wav';
 const filter = 'silencedetect=n=-30dB:d=2';  // Look for silences of duration 2, with -30 dB as the threshold
 const DIRECTORY = "recordings"
 
