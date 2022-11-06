@@ -10,6 +10,7 @@
   "license": "ISC",
   "dependencies": {
     "@google-cloud/speech": "^4.10.2",
+    "async": "^3.2.4",
     "dotenv": "^16.0.1",
     "fluent-ffmpeg": "^2.1.2",
     "node-audiorecorder": "^3.0.0",

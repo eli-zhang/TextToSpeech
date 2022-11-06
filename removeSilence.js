@@ -4,6 +4,9 @@ const path = require('path');
 const filter = 'silencedetect=n=-30dB:d=2';  // Look for silences of duration 2, with -30 dB as the threshold
 const DIRECTORY = "recordings"
 
+const START_TIME_PADDING = 0.5;
+const END_TIME_PADDING = 0.5;
+
 const runCommandOnFile = (file) => {
     let timestampsOfSilence = [];
     let timestampsOfSound = [];
@@ -66,8 +69,8 @@ const splitAudioByTimestamps = async (file, timestampsOfSound) => {
     const originalTimestamp = file.substring(file.indexOf("/"), file.indexOf("_"));
     
     // Create path to write recordings to.
-    if (!fs.existsSync(`${DIRECTORY}/${originalTimestamp}`)) {
-        fs.mkdirSync(`${DIRECTORY}/${originalTimestamp}`, { recursive: true });
+    if (!fs.existsSync(`${originalTimestamp}`)) {
+        fs.mkdirSync(`${originalTimestamp}`, { recursive: true });
     }
 
     let promises = []
@@ -80,7 +83,6 @@ const splitAudioByTimestamps = async (file, timestampsOfSound) => {
         }
 
         const fileName = path.join(
-            DIRECTORY,
             originalTimestamp,
             `${startTime}_${endTime}`
             .replace(/[^0-9a-zA-Z]+/g, '')
@@ -89,8 +91,8 @@ const splitAudioByTimestamps = async (file, timestampsOfSound) => {
 
         let prom = new Promise((resolve, reject) => {
             ffmpeg(file)
-            .setStartTime(startTime)
-            .setDuration(endTime - startTime) 
+            .setStartTime(startTime - START_TIME_PADDING)
+            .setDuration(endTime - startTime + START_TIME_PADDING + END_TIME_PADDING) 
             .on("error", function(err) {
                 console.log("error: ", +err);
                 reject(err);
