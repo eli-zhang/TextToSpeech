@@ -4,6 +4,8 @@ const path = require('path');
 
 const DIRECTORY = "recordings"
 
+let wordNodeMap = {}
+let wordFrequencyMap = {}
 
 // Here's the plan:
 // Make a node for every unique word
@@ -13,10 +15,16 @@ const DIRECTORY = "recordings"
 class WordNode {
     constructor(word) {
         this.word = word
-        this.filesContainingWords = []
+        this.wordInfoPerFile = []
     }
+
+    
 }
 
+const checkWordEquality = (firstWordInfo, secondWordInfo) => {
+    firstWordInfo.word === secondWordInfo.word && firstWordInfo.startTime === secondWordInfo.startTime
+    && firstWordInfo.endTime === secondWordInfo.endTime 
+}
 
 // Load all the JSONS
 const loopJSONFiles = async (dir) => {
@@ -36,12 +44,56 @@ const loopJSONFiles = async (dir) => {
     } catch (e) {
         console.error(e);
     }
+    const sortedWordFrequencies = Object.fromEntries(
+        Object.entries(wordFrequencyMap).sort(([,a],[,b]) => a-b)
+    );
+
+    console.log(sortedWordFrequencies)
 }
 
 const addJSONInfoToGraph = (fileName) => {
     let extension = path.extname(fileName);
     const truncatedName = path.basename(fileName, extension);
     const file = fs.readFileSync(fileName);
+    try {
+        const wordsInfo = JSON.parse(file);
+        let prev;
+        if (Array.isArray(wordsInfo) && wordsInfo.length > 0) {
+            // Process each word in wordInfo
+            for (let i = 0; i < wordsInfo.length; i++) {
+                let wordInfo = wordsInfo[i];
+                let currWord = wordInfo.word.toLowerCase();
+                if (prev) {
+                    prev.next = wordInfo;
+                }
+                wordInfo.prev = prev;
 
-    console.log("file name: " + fileName);
-    console.log(    JSON.pars
+                if (!wordNodeMap[currWord]) {
+                    let wordNode= new WordNode(currWord);
+                    wordNode.wordInfoPerFile.push(wordInfo);
+                    wordNodeMap[currWord] = wordNode;
+
+                    wordFrequencyMap[currWord] = 1;
+                } else {
+                    wordNodeMap[currWord].wordInfoPerFile.push(wordInfo);
+                    wordFrequencyMap[currWord] += 1;
+                }
+
+                prev = wordInfo;
+            }
+        }
+    } catch (err) {
+        console.log(`Empty or corrupt file: ${fileName}`);
+    }
+}
+
+const processSentence = (sentence) => {
+    let targetWords = sentence.split(" ");
+    if (targetWords.length > 0) {
+        targetWords.forEach((word) => {
+
+        })
+    }
+}
+
+loopJSONFiles(DIRECTORY)
