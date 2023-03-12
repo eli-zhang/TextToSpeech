@@ -5,7 +5,6 @@ const path = require('path');
 let ffmpeg = require('fluent-ffmpeg');
 const async = require("async");
 const execSync = require('child_process').execSync;
-const { getSystemErrorMap } = require('util');
 
 // Creates a client
 const client = new speech.SpeechClient();
@@ -38,7 +37,7 @@ const loopDirectories = async (dir, queue) => {
     }
 }
 
-const loopFiles = async (dir, queue) => {
+const loopFiles = async (dir, queue, fileExtension = ".wav") => {
     try {
         const files = await fs.promises.readdir(dir);
     
@@ -47,7 +46,7 @@ const loopFiles = async (dir, queue) => {
             const stat = await fs.promises.stat(p);
         
             if (stat.isFile()) {
-                if (p.includes(".wav")) {
+                if (p.includes(fileExtension)) {
                     queue.push(p, (err) => {
                         console.log("Finished processing file: " + p);
                     });
@@ -62,7 +61,7 @@ const loopFiles = async (dir, queue) => {
 async function transcribeAudioWithWhisper(fileName, callback) {
     let extension = path.extname(fileName);
     const secondaryRecordingTimestamp = path.basename(fileName, extension);
-    const mainRecordingTimestamp = fileName.substring(fileName.indexOf(WHISPER_TRANSCRIPTIONS_DIRECTORY) + WHISPER_TRANSCRIPTIONS_DIRECTORY.length + 1, fileName.indexOf(secondaryRecordingTimestamp) - 1);
+    const mainRecordingTimestamp = fileName.substring(fileName.indexOf(DIRECTORY) + DIRECTORY.length + 1, fileName.indexOf(secondaryRecordingTimestamp) - 1);
     const whisperFilesOutputDir = `${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}`
 
     if (fs.existsSync(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}/${mainRecordingTimestamp}_${secondaryRecordingTimestamp}.json`) || failedFiles.has(fileName)) {
@@ -147,7 +146,7 @@ async function transcribeAudioWithGoogle(fileName, callback) {
     };
     let extension = path.extname(fileName);
     const secondaryRecordingTimestamp = path.basename(fileName, extension);
-    const mainRecordingTimestamp = fileName.substring(fileName.indexOf(GOOGLE_TRANSCRIPTIONS_DIRECTORY) + GOOGLE_TRANSCRIPTIONS_DIRECTORY.length + 1, fileName.indexOf(secondaryRecordingTimestamp) - 1);
+    const mainRecordingTimestamp = fileName.substring(fileName.indexOf(DIRECTORY) + DIRECTORY.length + 1, fileName.indexOf(secondaryRecordingTimestamp) - 1);
 
     const config = {
         enableWordTimeOffsets: true,
@@ -215,22 +214,33 @@ const transcribeAllFilesWithWhisper = () => {
 }
 
 const splitAllFilesIntoWords = async () => {
-    const queue = async.queue((fileName, callback) => { splitAudioIntoWords(fileName, callback)}, TRANSCRIPTION_MAX); // Cap the number of concurrent transcriptions
+    const queue = async.queue((fileName, callback) => { splitAudioFromWordsFile(fileName, callback)}, TRANSCRIPTION_MAX); // Cap the number of concurrent transcriptions
 
     queue.drain(() => {
         console.log('All files have been processed.');
     });
 
-    loopFiles(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}`, queue);
-
+    loopFiles(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}`, queue, ".json");
 }
 
-const splitAudioIntoWords = async (file, words) => {
-    const originalTimestamp = file.substring(file.indexOf("/") + 1, file.indexOf("."));
+const splitAudioFromWordsFile = async (wordsFilePath, callback) => {
+    const wordsJSON = fs.readFileSync(wordsFilePath);
+    const words = JSON.parse(wordsJSON)
+    const extension = path.extname(wordsFilePath);
+    const wordsFileName = path.basename(wordsFilePath, extension);
+    const audioFileFolder = wordsFileName.split("_")[0]
+    const audioFileName = wordsFileName.split("_")[1]
+    const audioFileLocation = `${DIRECTORY}/${audioFileFolder}/${audioFileName}.wav`
+    await splitAudioFileIntoWords(audioFileLocation, words)
+    callback()
+}
+
+const splitAudioFileIntoWords = async (file, words) => {
+    const originalTimestamp = file.substring(file.indexOf(DIRECTORY) + DIRECTORY.length + 1, file.indexOf("."));
     
     // Create path to write recordings to.
-    if (!fs.existsSync(`${originalTimestamp}`)) {
-        fs.mkdirSync(`${originalTimestamp}`, { recursive: true });
+    if (!fs.existsSync(`${DIRECTORY}/${originalTimestamp}`)) {
+        fs.mkdirSync(`${DIRECTORY}/${originalTimestamp}`, { recursive: true });
     }
 
     let promises = []
@@ -276,9 +286,11 @@ if (fs.existsSync(FAILED_FILE_NAME)) {
     failedFiles = new Set(JSON.parse(failedFilesJSON));
 }
 
-transcribeAllFilesWithWhisper();
+splitAllFilesIntoWords()
+
+// transcribeAllFilesWithWhisper();
 
 // COMMENTING OUT ABOVE FOR NOW JUST FOR TESTING
-file = fs.readFileSync("temp_test.json");
-const words = JSON.parse(file)
-splitAudioIntoWords("./test/174178239767.wav", words);
+// file = fs.readFileSync("temp_test.json");
+// const words = JSON.parse(file)
+// splitAudioIntoWords("./test/174178239767.wav", words);
