@@ -44,7 +44,8 @@ const getLongestPhraseMatch = (fileName, wordsInTargetPhrase) => {
 
     if (subarrayInfo.longestCommonSubarray.length > 0) {
         let newPhrases = [wordsInTargetPhrase.slice(0, subarrayInfo.phrase2StartIndex), wordsInTargetPhrase.slice(subarrayInfo.phrase2EndIndex)]
-        fileToWordMatch[fileName] = { length: subarrayInfo.longestCommonSubarray.length, newPhrases: newPhrases };
+        fileToWordMatch[fileName] = { length: subarrayInfo.longestCommonSubarray.length, subArray: subarrayInfo.longestCommonSubarray, 
+            subarrayStartIndex: subarrayInfo.phrase1StartIndex, subarrayEndIndex: subarrayInfo.phrase1EndIndex, newPhrases: newPhrases };
     }
 }
 
@@ -69,11 +70,10 @@ const findClosestMatchingFileFromArr = async (wordsInTargetPhrase) => {
         if (count > highestCount) {
             highestCount = count;
         }
-        let newPhrases = fileInfo.newPhrases
         if (matchingWordsPerFile[count]) {
-            matchingWordsPerFile[count].push({fileName, newPhrases})
+            matchingWordsPerFile[count].push({fileName, fileInfo})
         } else {
-            matchingWordsPerFile[count] = [{fileName, newPhrases}]
+            matchingWordsPerFile[count] = [{fileName, fileInfo}]
         }
     })
 
@@ -83,12 +83,12 @@ const findClosestMatchingFileFromArr = async (wordsInTargetPhrase) => {
 
     let greedyBestMatches = matchingWordsPerFile[highestCount]
     let randomFileMatchingMostWords = greedyBestMatches[Math.floor(Math.random() * greedyBestMatches.length)];
-    let newPhrases = randomFileMatchingMostWords.newPhrases
+    let { newPhrases, subArray, subarrayStartIndex, subarrayEndIndex } = randomFileMatchingMostWords.fileInfo
 
     fileToWordMatch = {}
     let closestMatchLeftSide = await findClosestMatchingFileFromArr(newPhrases[0])
     let closestMatchRightSide = await findClosestMatchingFileFromArr(newPhrases[1])
-    return [...closestMatchLeftSide, randomFileMatchingMostWords.fileName, ...closestMatchRightSide]
+    return [...closestMatchLeftSide, { fileName: randomFileMatchingMostWords.fileName, subArray, subarrayStartIndex, subarrayEndIndex }, ...closestMatchRightSide]
 }
 
 const arraysEqual = (a, b) => {
