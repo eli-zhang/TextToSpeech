@@ -4,6 +4,8 @@ let ffmpeg = require('fluent-ffmpeg');
 const async = require("async");
 const { endianness } = require('os');
 const execSync = require('child_process').execSync;
+const cliProgress = require('cli-progress');
+
 
 const DIRECTORY = "recordings"
 const GOOGLE_TRANSCRIPTIONS_DIRECTORY = "google_transcriptions"
@@ -14,8 +16,12 @@ let fileToWordMatch = {}
 const loopFiles = async (dir, wordsInTargetPhrase) => {
     try {
         const files = await fs.promises.readdir(dir);
+        const bar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+        bar.start(files.length, 0);
     
-        for (const file of files) {
+        for (let i = 0; i < files.length; i++) {
+            bar.increment()
+            let file = files[i]
             const p = path.join(dir, file);
             const stat = await fs.promises.stat(p);
         
@@ -25,6 +31,7 @@ const loopFiles = async (dir, wordsInTargetPhrase) => {
                 }
             }
         }
+        bar.stop()
     } catch (e) {
         console.error(e);
     }
@@ -34,14 +41,17 @@ const getLongestPhraseMatch = (fileName, wordsInTargetPhrase) => {
     const wordsJSON = fs.readFileSync(fileName);
     const words = JSON.parse(wordsJSON).map((wordInfo) => wordInfo.word.toLowerCase());
     const subarrayInfo = longestCommonSubarray(words, wordsInTargetPhrase);
+
     if (subarrayInfo.longestCommonSubarray.length > 0) {
         let newPhrases = [wordsInTargetPhrase.slice(0, subarrayInfo.phrase2StartIndex), wordsInTargetPhrase.slice(subarrayInfo.phrase2EndIndex)]
-        fileToWordMatch[fileName] = { length: subarrayInfo.longestCommonSubarray.length, newPhrases: newPhrases};
+        fileToWordMatch[fileName] = { length: subarrayInfo.longestCommonSubarray.length, newPhrases: newPhrases };
     }
 }
 
 const findClosestMatchingFile = async(phrase) => {
-    return findClosestMatchingFileFromArr(phrase.split(" "))
+    const matchingFiles = await findClosestMatchingFileFromArr(phrase.split(" "))
+    console.log(matchingFiles)
+    return matchingFiles
 }
 
 const findClosestMatchingFileFromArr = async (wordsInTargetPhrase) => {
@@ -53,6 +63,7 @@ const findClosestMatchingFileFromArr = async (wordsInTargetPhrase) => {
 
     let matchingWordsPerFile = {}
     let highestCount = 0;
+
     Object.entries(fileToWordMatch).forEach(([fileName, fileInfo]) => {
         let count = fileInfo.length 
         if (count > highestCount) {
@@ -73,8 +84,11 @@ const findClosestMatchingFileFromArr = async (wordsInTargetPhrase) => {
     let greedyBestMatches = matchingWordsPerFile[highestCount]
     let randomFileMatchingMostWords = greedyBestMatches[Math.floor(Math.random() * greedyBestMatches.length)];
     let newPhrases = randomFileMatchingMostWords.newPhrases
-    console.log(newPhrases)
-    return [...findClosestMatchingFileFromArr(newPhrases[0]), ...findClosestMatchingFileFromArr(newPhrases[1])]
+
+    fileToWordMatch = {}
+    let closestMatchLeftSide = await findClosestMatchingFileFromArr(newPhrases[0])
+    let closestMatchRightSide = await findClosestMatchingFileFromArr(newPhrases[1])
+    return [...closestMatchLeftSide, randomFileMatchingMostWords.fileName, ...closestMatchRightSide]
 }
 
 const arraysEqual = (a, b) => {
@@ -95,7 +109,7 @@ const longestCommonSubarray = (phraseArr1, phraseArr2) => {
     let maxWindowSize = 0
     let answer = [];
     let phrase1StartIndex = -1, phrase1EndIndex = -1, phrase2StartIndex, phrase2EndIndex;   // End index is exclusive (don't include)
-    while (pointer1 + maxWindowSize < phraseArr1.length) {
+    while (pointer1 + maxWindowSize < phraseArr1.length && maxWindowSize < phraseArr2.length) {
         val1 = phraseArr1.slice(pointer1, pointer1 + maxWindowSize + 1), val2 = phraseArr2.slice(pointer2, pointer2 + maxWindowSize + 1);
         if (arraysEqual(val1, val2)) {    // Values equal, we can increase the window size
             answer = val1;
@@ -103,17 +117,16 @@ const longestCommonSubarray = (phraseArr1, phraseArr2) => {
             phrase1EndIndex = pointer1 + maxWindowSize + 1;
             phrase2StartIndex = pointer2;
             phrase2EndIndex = pointer2 + maxWindowSize + 1;
-            endIndex = 
             maxWindowSize++;
         } else {
             pointer2++;
-            if (pointer2 + maxWindowSize === phraseArr2.length) {
-                pointer2 = 0
-                pointer1++;
-            }
+        }
+        if (pointer2 + maxWindowSize === phraseArr2.length) {
+            pointer2 = 0
+            pointer1++;
         }
     }
     return { longestCommonSubarray: answer, phrase1StartIndex, phrase1EndIndex, phrase2StartIndex, phrase2EndIndex };
 }
 
-findClosestMatchingFile("doing")
+findClosestMatchingFile("hey how are you doing")
