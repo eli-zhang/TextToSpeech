@@ -6,6 +6,10 @@ const { endianness } = require('os');
 const execSync = require('child_process').execSync;
 const cliProgress = require('cli-progress');
 
+const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout,
+});
 
 const DIRECTORY = "recordings"
 const GOOGLE_TRANSCRIPTIONS_DIRECTORY = "google_transcriptions"
@@ -39,7 +43,7 @@ const loopFiles = async (dir, wordsInTargetPhrase) => {
 
 const getLongestPhraseMatch = (fileName, wordsInTargetPhrase) => {
     const wordsJSON = fs.readFileSync(fileName);
-    const words = JSON.parse(wordsJSON).map((wordInfo) => wordInfo.word.toLowerCase());
+    const words = JSON.parse(wordsJSON).map((wordInfo) => wordInfo.word);   // Optional: add .toLowerCase() to wordInfo map
     const subarrayInfo = longestCommonSubarray(words, wordsInTargetPhrase);
 
     if (subarrayInfo.longestCommonSubarray.length > 0) {
@@ -50,8 +54,20 @@ const getLongestPhraseMatch = (fileName, wordsInTargetPhrase) => {
 }
 
 const findClosestMatchingFile = async(phrase) => {
-    const matchingFiles = await findClosestMatchingFileFromArr(phrase.split(" "))
-    console.log(matchingFiles)
+    sanitizedPhrase = phrase.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"")
+    const matchingFiles = await findClosestMatchingFileFromArr(sanitizedPhrase.split(" "))
+    let pathList = []
+    matchingFiles.forEach((fileInfo) => {
+        const { fileName, subArray } = fileInfo
+        const extension = path.extname(fileName);
+        const timestamp = path.basename(fileName, extension);
+
+        subArray.forEach((word) => { // TODO: edit to use indices instead of just finding the word
+            word = word.replace(/'|"|\'?/g,"")
+            pathList.push(`${DIRECTORY}/${timestamp.split("_")[0]}/${timestamp.split("_")[1]}/${word}.wav`)
+        })
+    })
+    mergeAllPathsTogether(sanitizedPhrase, pathList)
     return matchingFiles
 }
 
@@ -129,4 +145,55 @@ const longestCommonSubarray = (phraseArr1, phraseArr2) => {
     return { longestCommonSubarray: answer, phrase1StartIndex, phrase1EndIndex, phrase2StartIndex, phrase2EndIndex };
 }
 
-findClosestMatchingFile("hey how are you doing")
+const mergeAllPathsTogether = (phrase, pathList) => {
+    if (pathList.length === 0) {
+        return
+    }
+    let pathAccumulator = ffmpeg(pathList[0]).on('error', function(err) {
+        console.log('An error occurred: ' + err.message);
+    })
+    .on('end', function() {
+        console.log('Merging finished !');
+    })
+
+    for (let i = 1; i < pathList.length; i++) {
+        pathAccumulator.input(pathList[i])
+    }
+
+    pathAccumulator.mergeToFile(`${DIRECTORY}/${phrase}.wav`)
+}
+
+// create interface for input and output
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  
+  // create empty user input
+  let userInput = "";
+  
+  // question user to enter name
+  rl.question("What is your name\n", function (string) {
+    userInput = string;
+  
+    console.log("Your name is " + userInput);
+  
+    // close input stream
+    rl.close();
+  });
+
+const promptAndGeneratePhrase = async () => {
+    const rl = readline.createInterface({
+        input: process.stdin, //or fileStream 
+        output: process.stdout
+      });
+    
+    for await (const line of rl) {
+    console.log(line)
+    }
+}
+
+
+while (true) {
+    promptAndGeneratePhrase()
+} 

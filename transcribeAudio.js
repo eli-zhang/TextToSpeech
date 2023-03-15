@@ -5,6 +5,9 @@ const path = require('path');
 let ffmpeg = require('fluent-ffmpeg');
 const async = require("async");
 const execSync = require('child_process').execSync;
+const cliProgress = require('cli-progress');
+const { google } = require('@google-cloud/speech/build/protos/protos');
+
 
 // Creates a client
 const client = new speech.SpeechClient();
@@ -23,32 +26,44 @@ let failedFiles = new Set();
 const loopDirectories = async (dir, queue) => {
     try {
         const files = await fs.promises.readdir(dir);
-
-        for (const file of files) {
+        const multibar = new cliProgress.MultiBar({
+            clearOnComplete: false,
+            hideCursor: true,
+            format: ' {bar} | {filename} | {value}/{total}',
+        }, cliProgress.Presets.shades_grey);
+        let bar = multibar.create(files.length, 0);
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i]
             const p = path.join(dir, file);
+
             const stat = await fs.promises.stat(p);
         
-            if (stat.isDirectory()) {
-                loopFiles(p, queue);
+            if (stat.isDirectory() && !p.includes(`${WHISPER_TRANSCRIPTIONS_DIRECTORY}`) && !p.includes(`${GOOGLE_TRANSCRIPTIONS_DIRECTORY}`)) {
+                bar.update(i, {filename: p})
+                loopFiles(p, queue, multibar);
             }
+            bar.update(i)
         }
+        multibar.stop();
     } catch (e) {
         console.error(e);
     }
 }
 
-const loopFiles = async (dir, queue, fileExtension = ".wav") => {
+const loopFiles = async (dir, queue, multibar, fileExtension = ".wav") => {
     try {
         const files = await fs.promises.readdir(dir);
     
-        for (const file of files) {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i]
             const p = path.join(dir, file);
             const stat = await fs.promises.stat(p);
         
             if (stat.isFile()) {
                 if (p.includes(fileExtension)) {
                     queue.push(p, (err) => {
-                        console.log("Finished processing file: " + p);
+                        // console.log("Finished processing file: " + p);
                     });
                 }
             }
@@ -69,7 +84,7 @@ async function transcribeAudioWithWhisper(fileName, callback) {
         return;
     }
     try {
-        console.log(`Running whisper on file ${fileName}`)
+        // console.log(`Running whisper on file ${fileName}`)
         execSync(`whisperx ${fileName} --model base.en --output_dir ${whisperFilesOutputDir} --align_model WAV2VEC2_ASR_LARGE_LV60K_960H --align_extend 2`,
             function (error, stdout, stderr) {
                 console.log('stdout: ' + stdout);
@@ -114,7 +129,6 @@ async function transcribeAudioWithWhisper(fileName, callback) {
             if (lines[i].includes("-->")) {
                 timestamps = lines[i].split("-->").map(ele => timestampToNumber(ele.trim()))
                 word = lines[i + 1]
-                console.log(word, timestamps)
                 words.push({"word": word, "startTime": timestamps[0], "endTime": timestamps[1]})
             }
         }
@@ -127,7 +141,6 @@ async function transcribeAudioWithWhisper(fileName, callback) {
             if (err) {
                 throw err;
             }
-            console.log(`JSON data for ${secondaryRecordingTimestamp} saved.`);
             callback();
         });
 
@@ -206,9 +219,7 @@ async function transcribeAudioWithGoogle(fileName, callback) {
 const transcribeAllFilesWithWhisper = () => {
     const queue = async.queue((fileName, callback) => { transcribeAudioWithWhisper(fileName, callback)}, TRANSCRIPTION_MAX); // Cap the number of concurrent transcriptions
 
-    queue.drain(() => {
-        console.log('All files have been processed.');
-    });
+    queue.drain(() => {});
 
     loopDirectories(DIRECTORY, queue);
 }
@@ -286,9 +297,9 @@ if (fs.existsSync(FAILED_FILE_NAME)) {
     failedFiles = new Set(JSON.parse(failedFilesJSON));
 }
 
-splitAllFilesIntoWords()
+// splitAllFilesIntoWords()
 
-// transcribeAllFilesWithWhisper();
+transcribeAllFilesWithWhisper();
 
 // COMMENTING OUT ABOVE FOR NOW JUST FOR TESTING
 // file = fs.readFileSync("temp_test.json");

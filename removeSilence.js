@@ -51,7 +51,7 @@ const loopFiles = async (dir) => {
             const p = path.join(dir, file);
             const stat = await fs.promises.stat(p);
         
-            if (stat.isFile()) {
+            if (stat.isFile() && p.includes("_recording")) {
                 console.log("'%s'  file.", p);
                 runCommandOnFile(p);
             } else if (stat.isDirectory()) {
