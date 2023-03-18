@@ -163,37 +163,23 @@ const mergeAllPathsTogether = (phrase, pathList) => {
     pathAccumulator.mergeToFile(`${DIRECTORY}/${phrase}.wav`)
 }
 
-// create interface for input and output
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
   
-  // create empty user input
-  let userInput = "";
+// create empty user input
+let userInput = "";
   
-  // question user to enter name
-  rl.question("What is your name\n", function (string) {
-    userInput = string;
-  
-    console.log("Your name is " + userInput);
-  
-    // close input stream
-    rl.close();
-  });
 
 const promptAndGeneratePhrase = async () => {
-    const rl = readline.createInterface({
-        input: process.stdin, //or fileStream 
-        output: process.stdout
-      });
+    // question user to enter name
+    readline.question("Enter a phrase:\n", async (string) => {
+        userInput = string;
     
-    for await (const line of rl) {
-    console.log(line)
-    }
+        console.log("Your phrase: " + userInput);
+
+        await findClosestMatchingFile(userInput)
+    
+        // close input stream
+        readline.close();
+    });
 }
 
-
-while (true) {
-    promptAndGeneratePhrase()
-} 
+promptAndGeneratePhrase()

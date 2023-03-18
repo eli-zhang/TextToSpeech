@@ -23,7 +23,7 @@ const END_TIME_PADDING = 0.05;
 
 let failedFiles = new Set();
 
-const loopDirectories = async (dir, queue) => {
+const loopDirectories = async (dir, lambda) => {
     try {
         const files = await fs.promises.readdir(dir);
         const multibar = new cliProgress.MultiBar({
@@ -38,12 +38,11 @@ const loopDirectories = async (dir, queue) => {
             const p = path.join(dir, file);
 
             const stat = await fs.promises.stat(p);
-        
+            bar.update(i, {filename: p})
+
             if (stat.isDirectory() && !p.includes(`${WHISPER_TRANSCRIPTIONS_DIRECTORY}`) && !p.includes(`${GOOGLE_TRANSCRIPTIONS_DIRECTORY}`)) {
-                bar.update(i, {filename: p})
-                loopFiles(p, queue, multibar);
+                loopFiles(p, lambda);
             }
-            bar.update(i)
         }
         multibar.stop();
     } catch (e) {
@@ -51,7 +50,7 @@ const loopDirectories = async (dir, queue) => {
     }
 }
 
-const loopFiles = async (dir, queue, multibar, fileExtension = ".wav") => {
+const loopFiles = async (dir, lambda, fileExtension = ".wav") => {
     try {
         const files = await fs.promises.readdir(dir);
     
@@ -62,9 +61,7 @@ const loopFiles = async (dir, queue, multibar, fileExtension = ".wav") => {
         
             if (stat.isFile()) {
                 if (p.includes(fileExtension)) {
-                    queue.push(p, (err) => {
-                        // console.log("Finished processing file: " + p);
-                    });
+                    await lambda(p)
                 }
             }
         }
@@ -73,81 +70,84 @@ const loopFiles = async (dir, queue, multibar, fileExtension = ".wav") => {
     }
 }
 
-async function transcribeAudioWithWhisper(fileName, callback) {
+async function transcribeAudioWithWhisper(fileName) {
     let extension = path.extname(fileName);
     const secondaryRecordingTimestamp = path.basename(fileName, extension);
     const mainRecordingTimestamp = fileName.substring(fileName.indexOf(DIRECTORY) + DIRECTORY.length + 1, fileName.indexOf(secondaryRecordingTimestamp) - 1);
     const whisperFilesOutputDir = `${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}`
 
-    if (fs.existsSync(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}/${mainRecordingTimestamp}_${secondaryRecordingTimestamp}.json`) || failedFiles.has(fileName)) {
-        callback();
-        return;
-    }
-    try {
-        // console.log(`Running whisper on file ${fileName}`)
-        execSync(`whisperx ${fileName} --model base.en --output_dir ${whisperFilesOutputDir} --align_model WAV2VEC2_ASR_LARGE_LV60K_960H --align_extend 2`,
-            function (error, stdout, stderr) {
-                console.log('stdout: ' + stdout);
-                console.log('stderr: ' + stderr);
-                if (error !== null) {
-                    console.log('exec error: ' + error);
+    return new Promise((resolve, reject) => {
+        if (fs.existsSync(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}/${mainRecordingTimestamp}_${secondaryRecordingTimestamp}.json`) || failedFiles.has(fileName)) {
+            resolve()
+        }
+        try {
+            console.log(`Running whisper on file ${fileName}`)
+            execSync(`whisperx ${fileName} --model base.en --output_dir ${whisperFilesOutputDir} --align_model WAV2VEC2_ASR_LARGE_LV60K_960H --align_extend 2`,
+                function (error, stdout, stderr) {
+                    console.log('stdout: ' + stdout);
+                    console.log('stderr: ' + stderr);
+                    if (error !== null) {
+                        console.log('exec error: ' + error);
+                    }
+                }
+            );
+        } catch(e) {
+            failedFiles.add(fileName)
+    
+            // Update failed files
+            fs.writeFile(FAILED_FILE_NAME, JSON.stringify(Array.from(failedFiles), null, 2), (err) => {
+                if (err) {
+                    throw err;
+                }
+            });
+    
+            console.log(`Error parsing file: ${fileName}, cleaning up.`)
+        }
+        
+    
+        let fileSuffix = `.word.srt`  // Doesn't include .wav
+        let suffixesToDelete = ['.ass', '.srt', '.tsv', '.txt', '.vtt', `.word.srt`];
+    
+        const timestampToNumber = (timestampString) => {
+            let parts = timestampString.split(":")
+            let hours = parseInt(parts[0])
+            let minutes = parseInt(parts[1])
+            let seconds = parseInt(parts[2].split(",")[0])
+            let millis = parseInt(parts[2].split(",")[1])
+    
+            return hours * 60 * 24 + minutes * 60 + seconds + millis / 1000
+        }
+    
+        try {  
+            let data = fs.readFileSync(`${whisperFilesOutputDir}/${secondaryRecordingTimestamp}.wav${fileSuffix}`, 'utf8');
+            let lines = data.toString().replaceAll("\r", "").split("\n").filter((str) => str != "");
+            words = []
+            for (let i = 0; i < lines.length - 1; i++) {
+                if (lines[i].includes("-->")) {
+                    timestamps = lines[i].split("-->").map(ele => timestampToNumber(ele.trim()))
+                    word = lines[i + 1]
+                    words.push({"word": word, "startTime": timestamps[0], "endTime": timestamps[1]})
                 }
             }
-        );
-    } catch(e) {
-        failedFiles.add(fileName)
-
-        // Update failed files
-        fs.writeFile(FAILED_FILE_NAME, JSON.stringify(Array.from(failedFiles), null, 2), (err) => {
-            if (err) {
-                throw err;
-            }
-        });
-
-        console.log(`Error parsing file: ${fileName}, cleaning up.`)
-    }
+            suffixesToDelete.forEach((suffix) => {
+                let fileToDelete = `${whisperFilesOutputDir}/${secondaryRecordingTimestamp}.wav${suffix}`
+                fs.unlinkSync(fileToDelete);
+            })
+        
+            fs.writeFile(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}/${mainRecordingTimestamp}_${secondaryRecordingTimestamp}.json`, JSON.stringify(words, null, 2), (err) => {
+                if (err) {
+                    throw err;
+                }
+                resolve()
+            });
     
-
-    let fileSuffix = `.word.srt`  // Doesn't include .wav
-    let suffixesToDelete = ['.ass', '.srt', '.tsv', '.txt', '.vtt', `.word.srt`];
-
-    const timestampToNumber = (timestampString) => {
-        let parts = timestampString.split(":")
-        let hours = parseInt(parts[0])
-        let minutes = parseInt(parts[1])
-        let seconds = parseInt(parts[2].split(",")[0])
-        let millis = parseInt(parts[2].split(",")[1])
-
-        return hours * 60 * 24 + minutes * 60 + seconds + millis / 1000
-    }
-
-    try {  
-        let data = fs.readFileSync(`${whisperFilesOutputDir}/${secondaryRecordingTimestamp}.wav${fileSuffix}`, 'utf8');
-        let lines = data.toString().replaceAll("\r", "").split("\n").filter((str) => str != "");
-        words = []
-        for (let i = 0; i < lines.length - 1; i++) {
-            if (lines[i].includes("-->")) {
-                timestamps = lines[i].split("-->").map(ele => timestampToNumber(ele.trim()))
-                word = lines[i + 1]
-                words.push({"word": word, "startTime": timestamps[0], "endTime": timestamps[1]})
-            }
+        } catch(e) {
+            console.log('Error:', e.stack);
+            reject()
         }
-        suffixesToDelete.forEach((suffix) => {
-            let fileToDelete = `${whisperFilesOutputDir}/${secondaryRecordingTimestamp}.wav${suffix}`
-            fs.unlinkSync(fileToDelete);
-        })
-    
-        fs.writeFile(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}/${mainRecordingTimestamp}_${secondaryRecordingTimestamp}.json`, JSON.stringify(words, null, 2), (err) => {
-            if (err) {
-                throw err;
-            }
-            callback();
-        });
+    })
 
-    } catch(e) {
-        console.log('Error:', e.stack);
-        callback();
-    }
+    
 }
 
 async function transcribeAudioWithGoogle(fileName, callback) {
@@ -174,7 +174,7 @@ async function transcribeAudioWithGoogle(fileName, callback) {
    
 
     if (fs.existsSync(`${DIRECTORY}/${GOOGLE_TRANSCRIPTIONS_DIRECTORY}/${mainRecordingTimestamp}_${secondaryRecordingTimestamp}.json`)) {
-        callback();
+        // callback();
         return;
     }
 
@@ -209,7 +209,7 @@ async function transcribeAudioWithGoogle(fileName, callback) {
             throw err;
         }
         console.log(`JSON data for ${secondaryRecordingTimestamp} saved.`);
-        callback();
+        // callback();
     });
 
     // TODO: Figure out whether to dynamically create phrases or split them beforehand
@@ -217,33 +217,67 @@ async function transcribeAudioWithGoogle(fileName, callback) {
 }
 
 const transcribeAllFilesWithWhisper = () => {
-    const queue = async.queue((fileName, callback) => { transcribeAudioWithWhisper(fileName, callback)}, TRANSCRIPTION_MAX); // Cap the number of concurrent transcriptions
-
-    queue.drain(() => {});
-
-    loopDirectories(DIRECTORY, queue);
+    const lambda = transcribeAudioWithWhisper;
+    loopDirectories(DIRECTORY, lambda);
 }
 
 const splitAllFilesIntoWords = async () => {
-    const queue = async.queue((fileName, callback) => { splitAudioFromWordsFile(fileName, callback)}, TRANSCRIPTION_MAX); // Cap the number of concurrent transcriptions
-
-    queue.drain(() => {
-        console.log('All files have been processed.');
-    });
-
-    loopFiles(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}`, queue, ".json");
+    const lambda = splitAudioFromWordsFile;
+    loopFiles(`${DIRECTORY}/${WHISPER_TRANSCRIPTIONS_DIRECTORY}`, lambda, ".json");
 }
 
-const splitAudioFromWordsFile = async (wordsFilePath, callback) => {
-    const wordsJSON = fs.readFileSync(wordsFilePath);
-    const words = JSON.parse(wordsJSON)
-    const extension = path.extname(wordsFilePath);
-    const wordsFileName = path.basename(wordsFilePath, extension);
-    const audioFileFolder = wordsFileName.split("_")[0]
-    const audioFileName = wordsFileName.split("_")[1]
-    const audioFileLocation = `${DIRECTORY}/${audioFileFolder}/${audioFileName}.wav`
-    await splitAudioFileIntoWords(audioFileLocation, words)
-    callback()
+const splitAudioFromWordsFile = async (wordsFilePath) => {
+    const processedCroppingPath = `${DIRECTORY}/processedCropping.json`
+    const failedCroppingPath = `${DIRECTORY}/failedCropping.json`
+    let processedCropping = new Set()
+    let failedCropping = new Set()
+
+    return new Promise(async (resolve, reject) => {
+        if (fs.existsSync(processedCroppingPath)) {
+            const processedCroppingJSON = fs.readFileSync(processedCroppingPath);
+            processedCropping = new Set(JSON.parse(processedCroppingJSON))
+            if (processedCropping.has(wordsFilePath)) return
+        }
+    
+        if (fs.existsSync(failedCroppingPath)) {
+            const failedCroppingJSON = fs.readFileSync(failedCroppingPath);
+            failedCropping = new Set(JSON.parse(failedCroppingJSON))
+            if (failedCropping.has(wordsFilePath)) return
+        }
+    
+        const wordsJSON = fs.readFileSync(wordsFilePath);
+        console.log(wordsFilePath)
+        const words = JSON.parse(wordsJSON)
+        const extension = path.extname(wordsFilePath);
+        const wordsFileName = path.basename(wordsFilePath, extension);
+        const audioFileFolder = wordsFileName.split("_")[0]
+        const audioFileName = wordsFileName.split("_")[1]
+        const audioFileLocation = `${DIRECTORY}/${audioFileFolder}/${audioFileName}.wav`
+        try {
+            await splitAudioFileIntoWords(audioFileLocation, words)
+        } catch (err) {
+            console.log(err)
+            failedCropping.add(wordsFilePath)
+            fs.writeFile(failedCroppingPath, JSON.stringify(Array.from(failedCropping), null, 2), (err) => {
+                if (err) {
+                    throw err;
+                }
+                console.log(`Cropping failure for ${wordsFilePath} recorded.`);
+                reject()
+            });
+        }
+    
+        processedCropping.add(wordsFilePath)
+        fs.writeFile(processedCroppingPath, JSON.stringify(Array.from(processedCropping), null, 2), (err) => {
+            if (err) {
+                throw err;
+            }
+            console.log(`Cropping success for ${wordsFilePath} recorded.`);
+            resolve()
+        });
+    })
+
+    
 }
 
 const splitAudioFileIntoWords = async (file, words) => {
@@ -297,9 +331,9 @@ if (fs.existsSync(FAILED_FILE_NAME)) {
     failedFiles = new Set(JSON.parse(failedFilesJSON));
 }
 
-// splitAllFilesIntoWords()
+splitAllFilesIntoWords()
 
-transcribeAllFilesWithWhisper();
+// transcribeAllFilesWithWhisper();
 
 // COMMENTING OUT ABOVE FOR NOW JUST FOR TESTING
 // file = fs.readFileSync("temp_test.json");
