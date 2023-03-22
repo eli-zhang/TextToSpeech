@@ -6,10 +6,7 @@ const { endianness } = require('os');
 const execSync = require('child_process').execSync;
 const cliProgress = require('cli-progress');
 
-const readline = require('readline').createInterface({
-    input: process.stdin,
-    output: process.stdout,
-});
+const readline = require('readline')
 
 const DIRECTORY = "recordings"
 const GOOGLE_TRANSCRIPTIONS_DIRECTORY = "google_transcriptions"
@@ -118,7 +115,7 @@ const arraysEqual = (a, b) => {
     return true;
   }
 
-
+// // Sliding window implementation
 const longestCommonSubarray = (phraseArr1, phraseArr2) => {
     let pointer1 = 0, pointer2 = 0
     let val1, val2
@@ -145,6 +142,32 @@ const longestCommonSubarray = (phraseArr1, phraseArr2) => {
     return { longestCommonSubarray: answer, phrase1StartIndex, phrase1EndIndex, phrase2StartIndex, phrase2EndIndex };
 }
 
+// DP implemenation
+// function longestCommonSubarray(arr1, arr2) {
+//     let matrix = Array(arr1.length + 1).fill(null).map(() => Array(arr2.length + 1).fill(null));
+//     let longestSubarray = [];
+//     let phrase1StartIndex = -1, phrase1EndIndex = -1, phrase2StartIndex, phrase2EndIndex;   // End index is exclusive (don't include)
+//     for (let i = 0; i <= arr1.length; i++) {
+//       for (let j = 0; j <= arr2.length; j++) {
+//         if (i === 0 || j === 0) {
+//           matrix[i][j] = 0;
+//         } else if (arr1[i - 1] === arr2[j - 1]) {
+//           matrix[i][j] = matrix[i - 1][j - 1] + 1;
+//           if (matrix[i][j] > longestSubarray.length) {
+//             longestSubarray = arr1.slice(i - matrix[i][j], i);
+//             phrase1StartIndex = i - matrix[i][j];
+//             phrase1EndIndex = i;
+//             phrase2StartIndex = j - matrix[i][j];
+//             phrase2EndIndex = j;
+//           }
+//         } else {
+//           matrix[i][j] = 0;
+//         }
+//       }
+//     }
+//     return { longestCommonSubarray: longestSubarray, phrase1StartIndex, phrase1EndIndex, phrase2StartIndex, phrase2EndIndex };
+//   }
+
 const mergeAllPathsTogether = (phrase, pathList) => {
     if (pathList.length === 0) {
         return
@@ -163,23 +186,35 @@ const mergeAllPathsTogether = (phrase, pathList) => {
     pathAccumulator.mergeToFile(`${DIRECTORY}/${phrase}.wav`)
 }
 
+
   
-// create empty user input
-let userInput = "";
-  
+const promptUser = () => {
+    return new Promise(function(resolve, reject) {
+        let rl = readline.createInterface(process.stdin, process.stdout)
+        rl.setPrompt('Enter a phrase > ')
+        rl.prompt();
+        rl.on('line', function(line) {
+            if (line === "exit" || line === "quit" || line == 'q') {
+                rl.close()
+                return
+            }
+    
+            findClosestMatchingFile(line)
+            console.log("\n\n")
+            rl.setPrompt('Enter a phrase > ')
+            rl.prompt()
+        }).on('close',function(){
+          console.log('Terminating.')
+        });
+      })
+}
 
 const promptAndGeneratePhrase = async () => {
-    // question user to enter name
-    readline.question("Enter a phrase:\n", async (string) => {
-        userInput = string;
-    
-        console.log("Your phrase: " + userInput);
-
-        await findClosestMatchingFile(userInput)
-    
-        // close input stream
-        readline.close();
-    });
+    try {
+        await promptUser()    
+    } catch(e) {
+        console.log('Failed generation loop:', e)
+    }
 }
 
 promptAndGeneratePhrase()
